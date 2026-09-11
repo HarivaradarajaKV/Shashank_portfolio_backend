@@ -131,6 +131,25 @@ app.use('/uploads', express.static(uploadsDir));
 
 // --- API ROUTES ---
 
+// Root welcome & API info endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    service: "Shashank's Portfolio Supabase Backend API",
+    database: 'PostgreSQL 17 (Supabase)',
+    storage: 'portfolio-images',
+    endpoints: {
+      health: '/api/health',
+      images: '/api/images',
+      upload: 'POST /api/images/upload',
+      reset: 'POST /api/images/reset',
+      resetAll: 'POST /api/images/reset-all',
+      login: 'POST /api/admin/login',
+      contact: 'POST /api/contact'
+    }
+  });
+});
+
 // Health & connection status check
 app.get('/api/health', async (req, res) => {
   try {
@@ -539,8 +558,13 @@ app.post('/api/contact', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[Portfolio Backend] Server running on http://localhost:${PORT}`);
-  console.log(`[Portfolio Backend] Supabase PostgreSQL connected at db.hhajohhnsqzpnwsmasoa.supabase.co`);
-  console.log(`[Portfolio Backend] Supabase Storage bucket: ${BUCKET_NAME}`);
-});
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`[Portfolio Backend] Server running on http://localhost:${PORT}`);
+    console.log(`[Portfolio Backend] Supabase PostgreSQL connected at db.hhajohhnsqzpnwsmasoa.supabase.co`);
+    console.log(`[Portfolio Backend] Supabase Storage bucket: ${BUCKET_NAME}`);
+  });
+}
+
+export default app;
+
