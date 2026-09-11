@@ -1,0 +1,30 @@
+{
+  "name": "shashank-portfolio-backend",
+  "version": "1.0.0",
+  "description": "Supabase PostgreSQL & Storage Backend for Shashank's Portfolio",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "init-db": "node initDb.js",
+    "sync-images": "node syncAllImagesToSupabase.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.3"
+  },
+  "keywords": [
+    "portfolio",
+    "backend",
+    "supabase",
+    "postgresql",
+    "express"
+  ],
+  "author": "Shashank M S",
+  "license": "MIT"
+}
