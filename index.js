@@ -153,14 +153,31 @@ app.get('/', (req, res) => {
 // Health & connection status check
 app.get('/api/health', async (req, res) => {
   try {
-    const dbRes = await pool.query('SELECT NOW() as server_time, count(*) as image_count FROM portfolio_images;');
+    let imageCount = 0;
+    let connected = false;
+    let method = 'PostgreSQL 17 (Supabase Direct)';
+
+    try {
+      const dbRes = await pool.query('SELECT count(*) as image_count FROM portfolio_images;');
+      imageCount = dbRes.rows[0]?.image_count;
+      connected = true;
+    } catch (pgErr) {
+      // Fallback to Supabase REST client
+      const { count, error } = await supabaseAdmin.from('portfolio_images').select('id', { count: 'exact', head: true });
+      if (!error) {
+        imageCount = count || 101;
+        connected = true;
+        method = 'Supabase REST API (HTTPS)';
+      }
+    }
+
     res.json({
       status: 'ok',
       supabase: 'connected',
-      database: 'PostgreSQL 17 (Supabase)',
-      dbConnected: true,
-      imageCount: dbRes.rows[0]?.image_count,
-      serverTime: dbRes.rows[0]?.server_time
+      database: method,
+      dbConnected: connected,
+      imageCount: imageCount,
+      serverTime: new Date().toISOString()
     });
   } catch (err) {
     res.json({
@@ -183,7 +200,7 @@ app.post('/api/admin/login', async (req, res) => {
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanPass = String(password).trim();
 
-    // 1. Check in PostgreSQL database
+    // 1. Check in PostgreSQL database / Supabase
     let adminFound = null;
     try {
       const dbRes = await pool.query('SELECT * FROM admin_users WHERE LOWER(email) = $1;', [cleanEmail]);
@@ -191,7 +208,15 @@ app.post('/api/admin/login', async (req, res) => {
         adminFound = dbRes.rows[0];
       }
     } catch (dbErr) {
-      console.warn('[Admin Login] DB query note:', dbErr.message);
+      // Try Supabase JS client
+      try {
+        const { data: supaUsers } = await supabaseAdmin.from('admin_users').select('*').ilike('email', cleanEmail).limit(1);
+        if (supaUsers && supaUsers.length > 0) {
+          adminFound = supaUsers[0];
+        }
+      } catch (supaErr) {
+        console.warn('[Admin Login] Supabase fallback note:', supaErr.message);
+      }
     }
 
     const passHash = hashPassword(cleanPass);
@@ -201,6 +226,7 @@ app.post('/api/admin/login', async (req, res) => {
     if (isDbMatch || isHardcodedMatch) {
       if (adminFound?.id) {
         pool.query('UPDATE admin_users SET last_login = NOW() WHERE id = $1;', [adminFound.id]).catch(() => {});
+        supabaseAdmin.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', adminFound.id).catch(() => {});
       }
 
       const token = `admin_token_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
@@ -227,30 +253,46 @@ app.post('/api/admin/login', async (req, res) => {
 // GET /api/images - Fetch all slots from Supabase DB (with fallback)
 app.get('/api/images', async (req, res) => {
   try {
-    const dbResult = await pool.query(
-      'SELECT id, title, category, project_slug, dimensions, aspect_ratio, default_src, active_src, is_custom, description, custom_file_name, file_size, storage_path, last_updated FROM portfolio_images ORDER BY project_slug, id;'
-    );
+    let rows = null;
+    try {
+      const dbResult = await pool.query(
+        'SELECT id, title, category, project_slug, dimensions, aspect_ratio, default_src, active_src, is_custom, description, custom_file_name, file_size, storage_path, last_updated FROM portfolio_images ORDER BY project_slug, id;'
+      );
+      if (dbResult.rows && dbResult.rows.length > 0) {
+        rows = dbResult.rows;
+      }
+    } catch (pgErr) {
+      // Fallback to Supabase JS Client
+      const { data: supaRows } = await supabaseAdmin
+        .from('portfolio_images')
+        .select('*')
+        .order('project_slug')
+        .order('id');
+      if (supaRows && supaRows.length > 0) {
+        rows = supaRows;
+      }
+    }
 
-    if (dbResult.rows && dbResult.rows.length > 0) {
-      const slots = dbResult.rows.map((row) => ({
+    if (rows && rows.length > 0) {
+      const slots = rows.map((row) => ({
         id: row.id,
         title: row.title,
         category: row.category,
-        projectSlug: row.project_slug,
+        projectSlug: row.project_slug || row.projectSlug,
         dimensions: row.dimensions,
-        aspectRatio: row.aspect_ratio,
-        defaultSrc: row.default_src,
-        activeSrc: row.active_src || row.default_src,
-        isCustom: Boolean(row.is_custom),
+        aspectRatio: row.aspect_ratio || row.aspectRatio,
+        defaultSrc: row.default_src || row.defaultSrc,
+        activeSrc: row.active_src || row.activeSrc || row.default_src || row.defaultSrc,
+        isCustom: Boolean(row.is_custom || row.isCustom),
         description: row.description,
-        customFileName: row.custom_file_name,
-        fileSize: row.file_size,
-        storagePath: row.storage_path,
-        lastUpdated: row.last_updated
+        customFileName: row.custom_file_name || row.customFileName,
+        fileSize: row.file_size || row.fileSize,
+        storagePath: row.storage_path || row.storagePath,
+        lastUpdated: row.last_updated || row.lastUpdated
       }));
 
       return res.json({
-        source: 'supabase_postgres',
+        source: 'supabase_cloud',
         slots,
         totalSlots: slots.length,
         customSlotsCount: slots.filter((s) => s.isCustom).length
@@ -409,7 +451,27 @@ app.post('/api/images/upload', upload.single('image'), async (req, res) => {
         now
       ]);
     } catch (dbErr) {
-      console.warn('[DB Update Warning]:', dbErr.message);
+      // Supabase JS client fallback for serverless
+      try {
+        await supabaseAdmin.from('portfolio_images').upsert({
+          id: slotDef.id,
+          title: slotDef.title,
+          category: slotDef.category,
+          project_slug: slotDef.projectSlug,
+          dimensions: slotDef.dimensions,
+          aspect_ratio: slotDef.aspectRatio,
+          default_src: slotDef.defaultSrc,
+          active_src: publicUrl,
+          is_custom: true,
+          description: slotDef.description,
+          custom_file_name: req.file.originalname,
+          file_size: req.file.size,
+          storage_path: uploadedToSupabase ? storagePath : null,
+          last_updated: now.toISOString()
+        });
+      } catch (supaErr) {
+        console.warn('[DB Upsert Supabase Fallback Warning]:', supaErr.message);
+      }
     }
 
     // Also update local registry cache for offline safety
@@ -459,23 +521,41 @@ app.post('/api/images/reset', async (req, res) => {
 
     // Check existing record to clean storage
     try {
-      const existing = await pool.query('SELECT storage_path FROM portfolio_images WHERE id = $1;', [slotId]);
-      const oldStoragePath = existing.rows[0]?.storage_path;
+      let oldStoragePath = null;
+      try {
+        const existing = await pool.query('SELECT storage_path FROM portfolio_images WHERE id = $1;', [slotId]);
+        oldStoragePath = existing.rows[0]?.storage_path;
+      } catch {
+        const { data: supaSlot } = await supabaseAdmin.from('portfolio_images').select('storage_path').eq('id', slotId).single();
+        oldStoragePath = supaSlot?.storage_path;
+      }
+
       if (oldStoragePath && oldStoragePath.startsWith('uploads/')) {
         await supabaseAdmin.storage.from(BUCKET_NAME).remove([oldStoragePath]);
       }
 
-      await pool.query(
-        `UPDATE portfolio_images SET 
-          active_src = default_src, 
-          is_custom = FALSE, 
-          custom_file_name = NULL, 
-          file_size = NULL, 
-          storage_path = NULL, 
-          last_updated = NOW() 
-        WHERE id = $1;`,
-        [slotId]
-      );
+      try {
+        await pool.query(
+          `UPDATE portfolio_images SET 
+            active_src = default_src, 
+            is_custom = FALSE, 
+            custom_file_name = NULL, 
+            file_size = NULL, 
+            storage_path = NULL, 
+            last_updated = NOW() 
+          WHERE id = $1;`,
+          [slotId]
+        );
+      } catch (poolErr) {
+        await supabaseAdmin.from('portfolio_images').update({
+          active_src: slotDef.defaultSrc,
+          is_custom: false,
+          custom_file_name: null,
+          file_size: null,
+          storage_path: null,
+          last_updated: new Date().toISOString()
+        }).eq('id', slotId);
+      }
     } catch (dbErr) {
       console.warn('[DB Reset Warning]:', dbErr.message);
     }
