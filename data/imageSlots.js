@@ -123,6 +123,206 @@ export const defaultImageSlots = [
     description: 'Hero mobile app showcase at the top of the NOPD case study'
   },
   {
+    id: 'nopd-how-might-we',
+    title: 'NOPD — How Might We Frame Banner',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '1232 × 400',
+    aspectRatio: '1232/400',
+    defaultSrc: '/images/projects/nopd/NOPD_How_Might_We.png',
+    description: 'How might we statement banner in Section 06'
+  },
+  {
+    id: 'nopd-problem-image',
+    title: 'NOPD — Problem Statement Image',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '600 × 500',
+    aspectRatio: '6/5',
+    defaultSrc: '',
+    description: 'Visual illustration or mockup for Problem Statement in Section 07'
+  },
+  {
+    id: 'nopd-solution-image',
+    title: 'NOPD — Solution Space Image',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '600 × 500',
+    aspectRatio: '6/5',
+    defaultSrc: '',
+    description: 'Visual illustration or mockup for Solution Space in Section 07'
+  },
+  {
+    id: 'nopd-persona-marcus',
+    title: 'NOPD — Marcus Williams Persona Avatar',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '561 × 465',
+    aspectRatio: '561/465',
+    defaultSrc: '/images/projects/nopd/lady_williams.png',
+    description: 'Profile portrait for Marcus Williams persona in Section 08'
+  },
+  {
+    id: 'nopd-persona-avatar',
+    title: 'NOPD — Persona Avatar (Alternate)',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '561 × 465',
+    aspectRatio: '561/465',
+    defaultSrc: '/images/projects/nopd/lady_williams.png',
+    description: 'Alternate profile portrait for persona in Section 08'
+  },
+  {
+    id: 'nopd-userflow-mobile',
+    title: 'NOPD — 09 User Flow: Mobile Screen Frame',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 600',
+    aspectRatio: '9/16',
+    defaultSrc: '',
+    description: 'Mobile screen mockup (with phone frame) in Section 09 User Flow'
+  },
+  {
+    id: 'nopd-userflow-chart',
+    title: 'NOPD — 09 User Flow: Wireflow Architecture Chart',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '760 × 560',
+    aspectRatio: '4/3',
+    defaultSrc: '',
+    description: 'User flow diagram / flowchart in Section 09 User Flow'
+  },
+  {
+    id: 'nopd-screen-home',
+    title: 'NOPD — 11 Screens: 01 Home Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Home screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-hiring-process',
+    title: 'NOPD — 11 Screens: 02 Hiring Process Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Hiring Process screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-events',
+    title: 'NOPD — 11 Screens: 03 Events Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Events screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-welcome',
+    title: 'NOPD — 11 Screens: 04 Welcome Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Welcome screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-search-phase',
+    title: 'NOPD — 11 Screens: 05 Search By Phase Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Search by Phase screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-dashboard',
+    title: 'NOPD — 11 Screens: 06 Applicant Dashboard',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Applicant Dashboard screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-applicant-info',
+    title: 'NOPD — 11 Screens: 07 Applicant Info Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Applicant Info screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-screen-contact-us',
+    title: 'NOPD — 11 Screens: 08 Contact Us Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '360 × 740',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'High-fidelity Contact Us screen mockup (with device frame) in Section 11'
+  },
+  {
+    id: 'nopd-connected-home',
+    title: 'NOPD — 12 Connected Flow: 01 Home Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '260 × 520',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'Step 01 Home Screen in Section 12 Connected Flow'
+  },
+  {
+    id: 'nopd-connected-progress',
+    title: 'NOPD — 12 Connected Flow: 02 Track Progress Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '260 × 520',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'Step 02 Track Progress Screen in Section 12 Connected Flow'
+  },
+  {
+    id: 'nopd-connected-requirement',
+    title: 'NOPD — 12 Connected Flow: 03 Requirements Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '260 × 520',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'Step 03 Check Requirements Screen in Section 12 Connected Flow'
+  },
+  {
+    id: 'nopd-connected-events',
+    title: 'NOPD — 12 Connected Flow: 04 Browse Events Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '260 × 520',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'Step 04 Browse Events Screen in Section 12 Connected Flow'
+  },
+  {
+    id: 'nopd-connected-recruiter',
+    title: 'NOPD — 12 Connected Flow: 05 Recruiter Screen',
+    category: 'NOPD Case Study',
+    projectSlug: 'nopd',
+    dimensions: '260 × 520',
+    aspectRatio: '9/19.5',
+    defaultSrc: '',
+    description: 'Step 05 Contact Recruiter Screen in Section 12 Connected Flow'
+  },
+  {
     id: 'nopd-rock-hero-showcase',
     title: 'NOPD — iPhone Air Mockup on Rock Showcase',
     category: 'NOPD Case Study',
@@ -151,16 +351,6 @@ export const defaultImageSlots = [
     aspectRatio: '599/741',
     defaultSrc: '/images/projects/nopd/Frame 1171275121data_udipi.webp',
     description: 'Center phone mockup in the NOPD Challenges & Solutions section'
-  },
-  {
-    id: 'nopd-persona-avatar',
-    title: 'NOPD — Marcus Williams Persona Avatar',
-    category: 'NOPD Case Study',
-    projectSlug: 'nopd',
-    dimensions: '561 × 465',
-    aspectRatio: '561/465',
-    defaultSrc: '/images/projects/nopd/lady_williams.png',
-    description: 'Profile portrait for Marcus Williams'
   },
   {
     id: 'nopd-empathy-avatar',
