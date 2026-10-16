@@ -274,7 +274,10 @@ app.get('/api/images', async (req, res) => {
     }
 
     if (rows && rows.length > 0) {
-      const slots = rows.map((row) => ({
+      const validSlotIds = new Set(defaultImageSlots.map((s) => s.id));
+      const slots = rows
+        .filter((row) => validSlotIds.has(row.id))
+        .map((row) => ({
         id: row.id,
         title: row.title,
         category: row.category,
