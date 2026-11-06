@@ -31,13 +31,53 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Supabase credentials
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://hhajohhnsqzpnwsmasoa.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
-const BUCKET_NAME = 'portfolio-images';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://hhajohhnsqzpnwsmasoa.supabase.co';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const BUCKET_NAME = process.env.SUPABASE_BUCKET || process.env.VITE_SUPABASE_BUCKET || 'portfolio-images';
 
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false }
 });
+
+// Helper to upload to Supabase Storage with bucket auto-detection
+export async function uploadToSupabaseStorage(storagePath, buffer, mimeType) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+
+  const bucketCandidates = Array.from(new Set([
+    process.env.SUPABASE_BUCKET,
+    process.env.VITE_SUPABASE_BUCKET,
+    BUCKET_NAME,
+    'portfolio-images',
+    'portfolio_images',
+    'portfolio',
+    'images',
+    'uploads'
+  ].filter(Boolean)));
+
+  for (const bucket of bucketCandidates) {
+    try {
+      const { data, error } = await supabaseAdmin.storage
+        .from(bucket)
+        .upload(storagePath, buffer, {
+          contentType: mimeType,
+          upsert: true
+        });
+
+      if (!error && data) {
+        const { data: urlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
+        if (urlData?.publicUrl) {
+          console.log(`[Supabase Storage Success] Uploaded to bucket '${bucket}': ${urlData.publicUrl}`);
+          return { bucket, publicUrl: urlData.publicUrl };
+        }
+      } else if (error) {
+        console.warn(`[Supabase Storage attempt '${bucket}']:`, error.message);
+      }
+    } catch (err) {
+      console.warn(`[Supabase Storage exception '${bucket}']:`, err.message);
+    }
+  }
+  return null;
+}
 
 // Helper to determine exact original extension without altering format
 export function getOriginalExtension(originalname, mimetype) {
@@ -317,7 +357,31 @@ app.get('/api/images', async (req, res) => {
   try {
     const slots = getAllSlots();
 
-    // Async attempt to pull overrides from remote PostgreSQL if available
+    // 1. Try Supabase REST query (works on Vercel over HTTPS without pg pooling)
+    try {
+      const { data: supaRows } = await supabaseAdmin
+        .from('portfolio_images')
+        .select('*')
+        .eq('is_custom', true);
+      if (supaRows && supaRows.length > 0) {
+        const supaMap = new Map(supaRows.map((r) => [r.id, r]));
+        slots.forEach((s) => {
+          if (supaMap.has(s.id)) {
+            const row = supaMap.get(s.id);
+            s.activeSrc = row.active_src || s.activeSrc;
+            s.isCustom = true;
+            s.customFileName = row.custom_file_name || s.customFileName;
+            s.fileSize = row.file_size || s.fileSize;
+            s.storagePath = row.storage_path || s.storagePath;
+            s.lastUpdated = row.last_updated || s.lastUpdated;
+          }
+        });
+      }
+    } catch {
+      // Supabase REST notice
+    }
+
+    // 2. Also try remote PostgreSQL pool if available
     try {
       const pgResult = await Promise.race([
         pool.query('SELECT id, active_src, is_custom FROM portfolio_images WHERE is_custom = TRUE;'),
@@ -334,7 +398,7 @@ app.get('/api/images', async (req, res) => {
         });
       }
     } catch {
-      // Supabase is offline/paused; use SQLite instant rows
+      // Supabase pool standby
     }
 
     return res.json({
@@ -379,14 +443,64 @@ app.post('/api/images/upload', (req, res) => {
 
     // 1. Save file to local uploads directory
     const localFilePath = path.join(uploadsDir, fileName);
-    fs.writeFileSync(localFilePath, req.file.buffer);
-    const publicUrl = `/uploads/${fileName}`;
+    try {
+      fs.writeFileSync(localFilePath, req.file.buffer);
+    } catch (fsErr) {
+      console.warn('[Local Disk Write Notice]:', fsErr.message);
+    }
+    let publicUrl = `/uploads/${fileName}`;
 
-    // 2. Prepare base64 data URI to store directly in the database
+    // 2. Prepare base64 data URI to store directly in SQLite
     const mimeType = req.file.mimetype || 'image/png';
     const base64Data = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
 
-    // 3. Store in SQLite Database (instant, persistent, guaranteed storage)
+    // 3. AWAIT upload to Supabase Storage Bucket (essential for Vercel serverless so function does not freeze)
+    let uploadedToSupabase = false;
+    try {
+      const supaResult = await uploadToSupabaseStorage(storagePath, req.file.buffer, mimeType);
+      if (supaResult?.publicUrl) {
+        publicUrl = supaResult.publicUrl;
+        uploadedToSupabase = true;
+
+        // Upsert into Supabase database table via HTTPS REST client
+        await supabaseAdmin.from('portfolio_images').upsert({
+          id: slotDef.id,
+          title: slotDef.title,
+          category: slotDef.category,
+          project_slug: slotDef.projectSlug,
+          dimensions: slotDef.dimensions,
+          aspect_ratio: slotDef.aspectRatio,
+          default_src: slotDef.defaultSrc,
+          active_src: publicUrl,
+          is_custom: true,
+          description: slotDef.description,
+          custom_file_name: req.file.originalname,
+          file_size: req.file.size,
+          storage_path: storagePath,
+          last_updated: new Date().toISOString()
+        }, { onConflict: 'id' }).catch((dbErr) => {
+          console.warn('[Supabase DB Upsert Note]:', dbErr.message);
+        });
+
+        // Also update via PostgreSQL pool if available
+        pool.query(
+          `INSERT INTO portfolio_images (id, active_src, is_custom, custom_file_name, file_size, storage_path, last_updated)
+           VALUES ($1, $2, TRUE, $3, $4, $5, NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             active_src = EXCLUDED.active_src,
+             is_custom = TRUE,
+             custom_file_name = EXCLUDED.custom_file_name,
+             file_size = EXCLUDED.file_size,
+             storage_path = EXCLUDED.storage_path,
+             last_updated = NOW();`,
+          [slotId, publicUrl, req.file.originalname, req.file.size, storagePath]
+        ).catch(() => {});
+      }
+    } catch (supaErr) {
+      console.warn('[Supabase Storage Sync Warning]:', supaErr.message);
+    }
+
+    // 4. Store in SQLite Database (instant local persistence)
     const updatedSlot = saveSlotUpload({
       slotId,
       publicUrl,
@@ -410,7 +524,7 @@ app.post('/api/images/upload', (req, res) => {
       console.warn('[Disk Cleanup Warning]:', cleanupErr.message);
     }
 
-    // 4. Update local registry file cache
+    // 5. Update local registry file cache
     const registry = readLocalRegistry();
     registry[slotId] = {
       url: publicUrl,
@@ -421,45 +535,12 @@ app.post('/api/images/upload', (req, res) => {
     };
     writeLocalRegistry(registry);
 
-    // 5. Asynchronously try to sync with Supabase Storage and PostgreSQL if accessible
-    (async () => {
-      try {
-        const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-          .from(BUCKET_NAME)
-          .upload(storagePath, req.file.buffer, {
-            contentType: mimeType,
-            upsert: true
-          });
-
-        if (!uploadError) {
-          const { data: urlData } = supabaseAdmin.storage.from(BUCKET_NAME).getPublicUrl(storagePath);
-          const supaUrl = urlData?.publicUrl;
-          if (supaUrl) {
-            await pool.query(
-              `INSERT INTO portfolio_images (id, active_src, is_custom, custom_file_name, file_size, storage_path, last_updated)
-               VALUES ($1, $2, TRUE, $3, $4, $5, NOW())
-               ON CONFLICT (id) DO UPDATE SET
-                 active_src = EXCLUDED.active_src,
-                 is_custom = TRUE,
-                 custom_file_name = EXCLUDED.custom_file_name,
-                 file_size = EXCLUDED.file_size,
-                 storage_path = EXCLUDED.storage_path,
-                 last_updated = NOW();`,
-              [slotId, supaUrl, req.file.originalname, req.file.size, storagePath]
-            ).catch(() => {});
-          }
-        }
-      } catch {
-        // Supabase offline/standby
-      }
-    })().catch(() => {});
-
-    console.log(`[Upload Success] Saved image for slot '${slotId}' in SQLite database and disk: ${fileName}`);
+    console.log(`[Upload Success] Saved image for slot '${slotId}' (Supabase: ${uploadedToSupabase}, URL: ${publicUrl.substring(0, 50)}...)`);
 
     res.json({
       success: true,
-      message: `Image for '${slotDef.title}' stored in database and active! (${originalExt.toUpperCase()})`,
-      storage: 'database_and_local',
+      message: `Image for '${slotDef.title}' stored successfully! (${originalExt.toUpperCase()})`,
+      storage: uploadedToSupabase ? 'supabase_storage' : 'database_and_local',
       fileExtension: originalExt,
       slot: updatedSlot
     });
