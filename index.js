@@ -116,22 +116,41 @@ function writeLocalRegistry(registry) {
   }
 }
 
-// Memory upload for multer
+function getMimeTypeForExt(filenameOrExt) {
+  const ext = path.extname(filenameOrExt || '').toLowerCase();
+  switch (ext) {
+    case '.webp': return 'image/webp';
+    case '.jpg':
+    case '.jpeg':
+    case '.pjpeg': return 'image/jpeg';
+    case '.png': return 'image/png';
+    case '.svg': return 'image/svg+xml';
+    case '.gif': return 'image/gif';
+    case '.avif': return 'image/avif';
+    case '.bmp': return 'image/bmp';
+    case '.tiff':
+    case '.tif': return 'image/tiff';
+    case '.ico': return 'image/x-icon';
+    case '.heic': return 'image/heic';
+    case '.heif': return 'image/heif';
+    default: return 'image/png';
+  }
+}
+
+// Memory upload for multer - accepts ANY image type up to 100MB
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max
   fileFilter: (req, file, cb) => {
-    const allowed = /\.(jpg|jpeg|png|webp|svg|gif|avif|bmp|tiff|ico|heic|heif)$/i;
-    if (!file.originalname.match(allowed) && !file.mimetype?.startsWith('image/')) {
-      return cb(new Error('Only image files (webp, png, jpg, jpeg, svg, gif, avif, etc.) are allowed!'), false);
-    }
+    // Accept all images (any image MIME type, any image extension, or any file passed to image upload)
     cb(null, true);
   }
 });
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Dedicated handler for serving uploaded images with database fallback
 app.get('/uploads/:filename', (req, res, next) => {
@@ -139,6 +158,8 @@ app.get('/uploads/:filename', (req, res, next) => {
   const diskPath = path.join(uploadsDir, filename);
 
   if (fs.existsSync(diskPath)) {
+    res.setHeader('Content-Type', getMimeTypeForExt(filename));
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     return res.sendFile(diskPath);
   }
 
@@ -146,10 +167,13 @@ app.get('/uploads/:filename', (req, res, next) => {
   try {
     const dbRecord = getSlotByFilename(filename);
     if (dbRecord && dbRecord.image_data) {
-      const matches = dbRecord.image_data.match(/^data:([A-Za-z-+/0-9]+);base64,(.+)$/);
-      if (matches) {
-        const mime = matches[1];
-        const buffer = Buffer.from(matches[2], 'base64');
+      const commaIdx = dbRecord.image_data.indexOf(',');
+      if (commaIdx !== -1) {
+        const meta = dbRecord.image_data.slice(0, commaIdx);
+        const rawBase64 = dbRecord.image_data.slice(commaIdx + 1);
+        const mimeMatch = meta.match(/^data:([^;]+)/);
+        const mime = mimeMatch ? mimeMatch[1] : (dbRecord.mime_type || getMimeTypeForExt(filename));
+        const buffer = Buffer.from(rawBase64, 'base64');
         res.setHeader('Content-Type', mime);
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         return res.send(buffer);
@@ -174,10 +198,13 @@ app.get('/api/images/:slotId/file', (req, res) => {
   }
 
   if (slot.image_data) {
-    const matches = slot.image_data.match(/^data:([A-Za-z-+/0-9]+);base64,(.+)$/);
-    if (matches) {
-      const mime = matches[1];
-      const buffer = Buffer.from(matches[2], 'base64');
+    const commaIdx = slot.image_data.indexOf(',');
+    if (commaIdx !== -1) {
+      const meta = slot.image_data.slice(0, commaIdx);
+      const rawBase64 = slot.image_data.slice(commaIdx + 1);
+      const mimeMatch = meta.match(/^data:([^;]+)/);
+      const mime = mimeMatch ? mimeMatch[1] : (slot.mime_type || 'image/png');
+      const buffer = Buffer.from(rawBase64, 'base64');
       res.setHeader('Content-Type', mime);
       res.setHeader('Cache-Control', 'public, max-age=86400');
       return res.send(buffer);
@@ -185,8 +212,10 @@ app.get('/api/images/:slotId/file', (req, res) => {
   }
 
   if (slot.active_src && slot.active_src.startsWith('/uploads/')) {
-    const diskPath = path.join(uploadsDir, path.basename(slot.active_src));
+    const filename = path.basename(slot.active_src);
+    const diskPath = path.join(uploadsDir, filename);
     if (fs.existsSync(diskPath)) {
+      res.setHeader('Content-Type', getMimeTypeForExt(filename));
       return res.sendFile(diskPath);
     }
   }
@@ -321,21 +350,26 @@ app.get('/api/images', async (req, res) => {
 });
 
 // POST /api/images/upload - Upload file, save in database and storage
-app.post('/api/images/upload', upload.single('image'), async (req, res) => {
-  try {
-    const { slotId } = req.body;
-    if (!slotId) {
-      return res.status(400).json({ error: 'slotId is required in form-data' });
+app.post('/api/images/upload', (req, res) => {
+  upload.single('image')(req, res, async (multerErr) => {
+    if (multerErr) {
+      console.error('[Upload Multer Error]:', multerErr);
+      return res.status(400).json({ error: multerErr.message || 'File upload error' });
     }
+    try {
+      const { slotId } = req.body;
+      if (!slotId) {
+        return res.status(400).json({ error: 'slotId is required in form-data' });
+      }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file provided' });
-    }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No image file provided' });
+      }
 
-    const slotDef = defaultImageSlots.find((s) => s.id === slotId);
-    if (!slotDef) {
-      return res.status(404).json({ error: `Image slot with ID '${slotId}' not found` });
-    }
+      const slotDef = defaultImageSlots.find((s) => s.id === slotId);
+      if (!slotDef) {
+        return res.status(404).json({ error: `Image slot with ID '${slotId}' not found` });
+      }
 
     // Preserve exact original extension (.webp, .png, .jpg, .jpeg, .svg, .gif, .avif, etc.)
     const originalExt = getOriginalExtension(req.file.originalname, req.file.mimetype);
@@ -433,6 +467,7 @@ app.post('/api/images/upload', upload.single('image'), async (req, res) => {
     console.error('Error handling upload:', err);
     res.status(500).json({ error: err.message || 'Internal server error during upload' });
   }
+  });
 });
 
 // POST /api/images/reset - Reset single slot to default
@@ -530,12 +565,19 @@ app.post('/api/contact', async (req, res) => {
   }
 });
 
-// Start server
-if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  app.listen(PORT, () => {
+// Start server when run standalone
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL && process.env.VITE_EMBEDDED !== 'true') {
+  const server = app.listen(PORT, () => {
     console.log(`[Portfolio Backend] Server running on http://localhost:${PORT}`);
     console.log(`[Portfolio Backend] SQLite Database active at ${dataDir}`);
     console.log(`[Portfolio Backend] Ready to serve uploads & database slots`);
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`[Portfolio Backend] Port ${PORT} already active, continuing.`);
+    } else {
+      console.error('[Portfolio Backend] Server listen error:', err);
+    }
   });
 }
 
