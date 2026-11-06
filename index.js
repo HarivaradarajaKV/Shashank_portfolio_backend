@@ -305,14 +305,14 @@ app.get('/api/health', async (req, res) => {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
       ]);
       if (!error) supabaseConnected = true;
-    } catch {
+    } catch (_supaErr) {
       try {
         const client = await Promise.race([
           pool.query('SELECT 1;'),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
         ]);
         if (client) supabaseConnected = true;
-      } catch {
+      } catch (_pgErr) {
         supabaseConnected = false;
       }
     }
@@ -386,7 +386,7 @@ app.get('/api/images', async (req, res) => {
           }
         });
       }
-    } catch {
+    } catch (_supaRestErr) {
       // Supabase REST notice
     }
 
@@ -406,7 +406,7 @@ app.get('/api/images', async (req, res) => {
           }
         });
       }
-    } catch {
+    } catch (_pgPoolErr) {
       // Supabase pool standby
     }
 
@@ -574,7 +574,7 @@ app.post('/api/images/reset', async (req, res) => {
     if (resetSlot.previousActiveSrc && resetSlot.previousActiveSrc.startsWith('/uploads/')) {
       const diskPath = path.join(uploadsDir, path.basename(resetSlot.previousActiveSrc));
       if (fs.existsSync(diskPath)) {
-        try { fs.unlinkSync(diskPath); } catch {}
+        try { fs.unlinkSync(diskPath); } catch (_fsErr) {}
       }
     }
 
@@ -617,7 +617,7 @@ app.post('/api/images/reset-all', async (req, res) => {
       if (row.active_src && row.active_src.startsWith('/uploads/')) {
         const diskPath = path.join(uploadsDir, path.basename(row.active_src));
         if (fs.existsSync(diskPath)) {
-          try { fs.unlinkSync(diskPath); } catch {}
+          try { fs.unlinkSync(diskPath); } catch (_cleanErr) {}
         }
       }
     }

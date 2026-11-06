@@ -178,7 +178,7 @@ function initializeTables(db) {
               try {
                 const buf = fs.readFileSync(fullFilePath);
                 base64 = `data:${mime};base64,${buf.toString('base64')}`;
-              } catch {}
+              } catch (_readErr) {}
 
               db.prepare(`
                 UPDATE portfolio_images SET
