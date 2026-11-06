@@ -565,8 +565,15 @@ app.post('/api/contact', async (req, res) => {
   }
 });
 
-// Start server when run standalone
-if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL && process.env.VITE_EMBEDDED !== 'true') {
+// Start server when run standalone via CLI
+const isDirectCli = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith('server/index.js') ||
+   process.argv[1].endsWith('server/index') ||
+   process.argv[1].endsWith('server/initDb.js'))
+);
+
+if (isDirectCli && process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const server = app.listen(PORT, () => {
     console.log(`[Portfolio Backend] Server running on http://localhost:${PORT}`);
     console.log(`[Portfolio Backend] SQLite Database active at ${dataDir}`);
