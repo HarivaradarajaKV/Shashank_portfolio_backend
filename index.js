@@ -31,8 +31,9 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Supabase credentials
+const DEFAULT_SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoYWpvaGhuc3F6cG53c21hc29hIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTExNzQxNywiZXhwIjoyMTA0NjkzNDE3fQ.cbtxhuzYc9f5yYXNYsGNniTToGHer1QH1Wk8tNoGJvg';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://hhajohhnsqzpnwsmasoa.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SERVICE_ROLE_KEY;
 const BUCKET_NAME = process.env.SUPABASE_BUCKET || process.env.VITE_SUPABASE_BUCKET || 'portfolio-images';
 
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -299,13 +300,21 @@ app.get('/api/health', async (req, res) => {
 
     let supabaseConnected = false;
     try {
-      const client = await Promise.race([
-        pool.query('SELECT 1;'),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
+      const { error } = await Promise.race([
+        supabaseAdmin.from('portfolio_images').select('id', { count: 'exact', head: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
       ]);
-      if (client) supabaseConnected = true;
+      if (!error) supabaseConnected = true;
     } catch {
-      supabaseConnected = false;
+      try {
+        const client = await Promise.race([
+          pool.query('SELECT 1;'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
+        ]);
+        if (client) supabaseConnected = true;
+      } catch {
+        supabaseConnected = false;
+      }
     }
 
     res.json({
@@ -577,6 +586,14 @@ app.post('/api/images/reset', async (req, res) => {
     }
 
     // Asynchronously update remote Supabase if available
+    supabaseAdmin.from('portfolio_images').update({
+      active_src: resetSlot.default_src,
+      is_custom: false,
+      custom_file_name: null,
+      file_size: null,
+      storage_path: null,
+      last_updated: new Date().toISOString()
+    }).eq('id', slotId).then(() => {}).catch(() => {});
     pool.query('UPDATE portfolio_images SET active_src = default_src, is_custom = FALSE WHERE id = $1;', [slotId]).catch(() => {});
 
     res.json({
@@ -607,6 +624,10 @@ app.post('/api/images/reset-all', async (req, res) => {
 
     writeLocalRegistry({});
 
+    supabaseAdmin.from('portfolio_images').update({
+      is_custom: false,
+      last_updated: new Date().toISOString()
+    }).eq('is_custom', true).then(() => {}).catch(() => {});
     pool.query('UPDATE portfolio_images SET active_src = default_src, is_custom = FALSE WHERE is_custom = TRUE;').catch(() => {});
 
     res.json({
