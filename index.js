@@ -9,6 +9,17 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { defaultImageSlots } from './data/imageSlots.js';
+import {
+  getDb,
+  getAllSlots,
+  getSlotById,
+  getSlotByFilename,
+  saveSlotUpload,
+  resetSlotById,
+  resetAllSlots,
+  authenticateAdminUser,
+  insertContactMessage
+} from './db.js';
 
 dotenv.config();
 
@@ -52,13 +63,7 @@ export function getOriginalExtension(originalname, mimetype) {
   }
 }
 
-// Password hashing helper
-export function hashPassword(password) {
-  const salt = 'shashank_portfolio_salt_2026';
-  return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-}
-
-// PostgreSQL connection pool for Supabase with error handler
+// PostgreSQL connection pool with short connection timeout so it never blocks requests
 const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'Shashank#08ms',
@@ -66,14 +71,13 @@ const pool = new Pool({
   port: Number(process.env.DB_PORT) || 5432,
   database: process.env.DB_NAME || 'postgres',
   ssl: { rejectUnauthorized: false },
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000
+  max: 5,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 1500
 });
 
-// Prevent Node process exit on idle client socket disconnects
 pool.on('error', (err) => {
-  console.warn('[PostgreSQL Pool Warning]:', err.message);
+  // Silent catch to prevent unhandled errors when remote DB is offline/paused
 });
 
 process.on('uncaughtException', (err) => {
@@ -85,8 +89,9 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Local paths & fallback registry
-const uploadsDir = path.join(__dirname, 'uploads');
-const dataDir = path.join(__dirname, 'data');
+const isVercel = Boolean(process.env.VERCEL);
+const uploadsDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');
+const dataDir = isVercel ? '/tmp' : path.join(__dirname, 'data');
 const registryFile = path.join(dataDir, 'registry.json');
 
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -111,7 +116,7 @@ function writeLocalRegistry(registry) {
   }
 }
 
-// Memory upload for Supabase Storage - accepts any image format and preserves original type
+// Memory upload for multer
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
@@ -125,19 +130,86 @@ const upload = multer({
 });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '50mb' }));
+
+// Dedicated handler for serving uploaded images with database fallback
+app.get('/uploads/:filename', (req, res, next) => {
+  const filename = path.basename(req.params.filename);
+  const diskPath = path.join(uploadsDir, filename);
+
+  if (fs.existsSync(diskPath)) {
+    return res.sendFile(diskPath);
+  }
+
+  // Fallback: Check if image binary is stored in SQLite database
+  try {
+    const dbRecord = getSlotByFilename(filename);
+    if (dbRecord && dbRecord.image_data) {
+      const matches = dbRecord.image_data.match(/^data:([A-Za-z-+/0-9]+);base64,(.+)$/);
+      if (matches) {
+        const mime = matches[1];
+        const buffer = Buffer.from(matches[2], 'base64');
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.send(buffer);
+      }
+    }
+  } catch (err) {
+    console.warn('[Uploads DB Fallback Warning]:', err.message);
+  }
+
+  next();
+});
+
+// Serve static uploads
 app.use('/uploads', express.static(uploadsDir));
+
+// Dedicated slot image endpoint
+app.get('/api/images/:slotId/file', (req, res) => {
+  const { slotId } = req.params;
+  const slot = getSlotById(slotId);
+  if (!slot) {
+    return res.status(404).json({ error: `Image slot '${slotId}' not found` });
+  }
+
+  if (slot.image_data) {
+    const matches = slot.image_data.match(/^data:([A-Za-z-+/0-9]+);base64,(.+)$/);
+    if (matches) {
+      const mime = matches[1];
+      const buffer = Buffer.from(matches[2], 'base64');
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(buffer);
+    }
+  }
+
+  if (slot.active_src && slot.active_src.startsWith('/uploads/')) {
+    const diskPath = path.join(uploadsDir, path.basename(slot.active_src));
+    if (fs.existsSync(diskPath)) {
+      return res.sendFile(diskPath);
+    }
+  }
+
+  // Redirect to active or default image
+  const target = slot.active_src || slot.default_src;
+  if (target) {
+    return res.redirect(target);
+  }
+  return res.status(404).json({ error: 'No image available for this slot' });
+});
 
 // --- API ROUTES ---
 
-// Root welcome & API info endpoint
+// Root status endpoint
 app.get('/', (req, res) => {
+  const slots = getAllSlots();
   res.json({
     status: 'online',
-    service: "Shashank's Portfolio Supabase Backend API",
-    database: 'PostgreSQL 17 (Supabase)',
-    storage: 'portfolio-images',
+    service: "Shashank's Portfolio API & Storage Engine",
+    database: 'SQLite (Native Embedded) + Supabase Dual-Engine',
+    totalSlots: slots.length,
+    customSlotsCount: slots.filter((s) => s.isCustom).length,
     endpoints: {
       health: '/api/health',
       images: '/api/images',
@@ -150,40 +222,35 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health & connection status check
+// Health check endpoint
 app.get('/api/health', async (req, res) => {
   try {
-    let imageCount = 0;
-    let connected = false;
-    let method = 'PostgreSQL 17 (Supabase Direct)';
+    const slots = getAllSlots();
+    const customCount = slots.filter((s) => s.isCustom).length;
 
+    let supabaseConnected = false;
     try {
-      const dbRes = await pool.query('SELECT count(*) as image_count FROM portfolio_images;');
-      imageCount = dbRes.rows[0]?.image_count;
-      connected = true;
-    } catch (pgErr) {
-      // Fallback to Supabase REST client
-      const { count, error } = await supabaseAdmin.from('portfolio_images').select('id', { count: 'exact', head: true });
-      if (!error) {
-        imageCount = count || 101;
-        connected = true;
-        method = 'Supabase REST API (HTTPS)';
-      }
+      const client = await Promise.race([
+        pool.query('SELECT 1;'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000))
+      ]);
+      if (client) supabaseConnected = true;
+    } catch {
+      supabaseConnected = false;
     }
 
     res.json({
       status: 'ok',
-      supabase: 'connected',
-      database: method,
-      dbConnected: connected,
-      imageCount: imageCount,
+      database: 'SQLite (Active & Persistent)',
+      supabase: supabaseConnected ? 'connected' : 'standby_or_offline',
+      totalSlots: slots.length,
+      customSlotsCount: customCount,
       serverTime: new Date().toISOString()
     });
   } catch (err) {
     res.json({
       status: 'ok',
-      supabase: 'fallback_mode',
-      dbConnected: false,
+      database: 'SQLite (Active)',
       error: err.message
     });
   }
@@ -197,48 +264,14 @@ app.post('/api/admin/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    const cleanPass = String(password).trim();
+    const authResult = authenticateAdminUser(email, password);
 
-    // 1. Check in PostgreSQL database / Supabase
-    let adminFound = null;
-    try {
-      const dbRes = await pool.query('SELECT * FROM admin_users WHERE LOWER(email) = $1;', [cleanEmail]);
-      if (dbRes.rows.length > 0) {
-        adminFound = dbRes.rows[0];
-      }
-    } catch (dbErr) {
-      // Try Supabase JS client
-      try {
-        const { data: supaUsers } = await supabaseAdmin.from('admin_users').select('*').ilike('email', cleanEmail).limit(1);
-        if (supaUsers && supaUsers.length > 0) {
-          adminFound = supaUsers[0];
-        }
-      } catch (supaErr) {
-        console.warn('[Admin Login] Supabase fallback note:', supaErr.message);
-      }
-    }
-
-    const passHash = hashPassword(cleanPass);
-    const isHardcodedMatch = cleanEmail === 'shashankms08112000@gmail.com' && cleanPass === 'Shashi@08';
-    const isDbMatch = adminFound && (adminFound.password_hash === passHash || adminFound.password_hash === cleanPass);
-
-    if (isDbMatch || isHardcodedMatch) {
-      if (adminFound?.id) {
-        pool.query('UPDATE admin_users SET last_login = NOW() WHERE id = $1;', [adminFound.id]).catch(() => {});
-        supabaseAdmin.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', adminFound.id).catch(() => {});
-      }
-
+    if (authResult.success) {
       const token = `admin_token_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
-
       return res.json({
         success: true,
         message: 'Admin authentication successful',
-        user: {
-          email: cleanEmail,
-          role: adminFound?.role || 'superadmin',
-          name: 'Shashank MS'
-        },
+        user: authResult.user,
         token
       });
     }
@@ -250,83 +283,44 @@ app.post('/api/admin/login', async (req, res) => {
   }
 });
 
-// GET /api/images - Fetch all slots from Supabase DB (with fallback)
+// GET /api/images - Fetch all slots from persistent database
 app.get('/api/images', async (req, res) => {
   try {
-    let rows = null;
+    const slots = getAllSlots();
+
+    // Async attempt to pull overrides from remote PostgreSQL if available
     try {
-      const dbResult = await pool.query(
-        'SELECT id, title, category, project_slug, dimensions, aspect_ratio, default_src, active_src, is_custom, description, custom_file_name, file_size, storage_path, last_updated FROM portfolio_images ORDER BY project_slug, id;'
-      );
-      if (dbResult.rows && dbResult.rows.length > 0) {
-        rows = dbResult.rows;
+      const pgResult = await Promise.race([
+        pool.query('SELECT id, active_src, is_custom FROM portfolio_images WHERE is_custom = TRUE;'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1200))
+      ]);
+      if (pgResult?.rows && pgResult.rows.length > 0) {
+        const pgMap = new Map(pgResult.rows.map((r) => [r.id, r]));
+        slots.forEach((s) => {
+          if (pgMap.has(s.id)) {
+            const pgRow = pgMap.get(s.id);
+            s.activeSrc = pgRow.active_src || s.activeSrc;
+            s.isCustom = Boolean(pgRow.is_custom);
+          }
+        });
       }
-    } catch (pgErr) {
-      // Fallback to Supabase JS Client
-      const { data: supaRows } = await supabaseAdmin
-        .from('portfolio_images')
-        .select('*')
-        .order('project_slug')
-        .order('id');
-      if (supaRows && supaRows.length > 0) {
-        rows = supaRows;
-      }
+    } catch {
+      // Supabase is offline/paused; use SQLite instant rows
     }
 
-    if (rows && rows.length > 0) {
-      const validSlotIds = new Set(defaultImageSlots.map((s) => s.id));
-      const slots = rows
-        .filter((row) => validSlotIds.has(row.id))
-        .map((row) => ({
-        id: row.id,
-        title: row.title,
-        category: row.category,
-        projectSlug: row.project_slug || row.projectSlug,
-        dimensions: row.dimensions,
-        aspectRatio: row.aspect_ratio || row.aspectRatio,
-        defaultSrc: row.default_src || row.defaultSrc,
-        activeSrc: row.active_src || row.activeSrc || row.default_src || row.defaultSrc,
-        isCustom: Boolean(row.is_custom || row.isCustom),
-        description: row.description,
-        customFileName: row.custom_file_name || row.customFileName,
-        fileSize: row.file_size || row.fileSize,
-        storagePath: row.storage_path || row.storagePath,
-        lastUpdated: row.last_updated || row.lastUpdated
-      }));
-
-      return res.json({
-        source: 'supabase_cloud',
-        slots,
-        totalSlots: slots.length,
-        customSlotsCount: slots.filter((s) => s.isCustom).length
-      });
-    }
+    return res.json({
+      source: 'database_sqlite_persistent',
+      slots,
+      totalSlots: slots.length,
+      customSlotsCount: slots.filter((s) => s.isCustom).length
+    });
   } catch (err) {
-    console.warn('[API /images] DB query fallback to local:', err.message);
+    console.error('[API /images] Error:', err);
+    res.status(500).json({ error: 'Failed to retrieve image slots' });
   }
-
-  // Fallback to local default image slots + registry
-  const registry = readLocalRegistry();
-  const fallbackSlots = defaultImageSlots.map((slot) => {
-    const override = registry[slot.id];
-    return {
-      ...slot,
-      activeSrc: override?.url || slot.defaultSrc,
-      isCustom: Boolean(override?.url),
-      lastUpdated: override?.updatedAt || null,
-      customFileName: override?.originalName || null
-    };
-  });
-
-  res.json({
-    source: 'local_fallback',
-    slots: fallbackSlots,
-    totalSlots: fallbackSlots.length,
-    customSlotsCount: fallbackSlots.filter((s) => s.isCustom).length
-  });
 });
 
-// POST /api/images/upload - Upload file to Supabase Storage & update Database preserving ORIGINAL EXTENSION
+// POST /api/images/upload - Upload file, save in database and storage
 app.post('/api/images/upload', upload.single('image'), async (req, res) => {
   try {
     const { slotId } = req.body;
@@ -343,163 +337,95 @@ app.post('/api/images/upload', upload.single('image'), async (req, res) => {
       return res.status(404).json({ error: `Image slot with ID '${slotId}' not found` });
     }
 
-    // Fetch previous image record to remove from storage bucket and local storage
-    let oldStoragePath = null;
-    let oldLocalFile = null;
-    try {
-      const prevResult = await pool.query('SELECT storage_path, active_src, is_custom FROM portfolio_images WHERE id = $1;', [slotId]);
-      if (prevResult.rows.length > 0) {
-        oldStoragePath = prevResult.rows[0].storage_path;
-        if (prevResult.rows[0].active_src && prevResult.rows[0].active_src.startsWith('/uploads/')) {
-          oldLocalFile = path.join(uploadsDir, path.basename(prevResult.rows[0].active_src));
-        }
-      }
-    } catch (fetchErr) {
-      console.warn('[Previous Image Fetch Warning]:', fetchErr.message);
-    }
-
     // Preserve exact original extension (.webp, .png, .jpg, .jpeg, .svg, .gif, .avif, etc.)
     const originalExt = getOriginalExtension(req.file.originalname, req.file.mimetype);
     const cleanSlotId = slotId.replace(/[^a-zA-Z0-9-_]/g, '_');
-    const storagePath = `uploads/${cleanSlotId}_${Date.now()}${originalExt}`;
+    const fileName = `${cleanSlotId}_${Date.now()}${originalExt}`;
+    const storagePath = `uploads/${fileName}`;
 
-    let publicUrl = '';
-    let uploadedToSupabase = false;
+    // 1. Save file to local uploads directory
+    const localFilePath = path.join(uploadsDir, fileName);
+    fs.writeFileSync(localFilePath, req.file.buffer);
+    const publicUrl = `/uploads/${fileName}`;
 
-    // 1. Upload to Supabase Storage Bucket preserving exact binary and original mimetype
+    // 2. Prepare base64 data URI to store directly in the database
+    const mimeType = req.file.mimetype || 'image/png';
+    const base64Data = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
+
+    // 3. Store in SQLite Database (instant, persistent, guaranteed storage)
+    const updatedSlot = saveSlotUpload({
+      slotId,
+      publicUrl,
+      originalName: req.file.originalname,
+      size: req.file.size,
+      storagePath,
+      base64Data,
+      mimeType
+    });
+
+    // Clean up any old files from disk for this slot
     try {
-      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-        .from(BUCKET_NAME)
-        .upload(storagePath, req.file.buffer, {
-          contentType: req.file.mimetype || 'application/octet-stream',
-          upsert: true
-        });
-
-      if (!uploadError) {
-        const { data: publicUrlData } = supabaseAdmin.storage
-          .from(BUCKET_NAME)
-          .getPublicUrl(storagePath);
-        publicUrl = publicUrlData.publicUrl;
-        uploadedToSupabase = true;
-
-        // Clean up previous image from Supabase bucket
-        if (oldStoragePath && oldStoragePath !== storagePath) {
-          try {
-            const { error: removeErr } = await supabaseAdmin.storage
-              .from(BUCKET_NAME)
-              .remove([oldStoragePath]);
-            if (removeErr) {
-              console.warn('[Previous Image Storage Delete Warning]:', removeErr.message);
-            } else {
-              console.log(`[Storage Cleanup] Deleted previous bucket image: ${oldStoragePath}`);
-            }
-          } catch (rmCatch) {
-            console.warn('[Previous Image Storage Delete Catch]:', rmCatch.message);
-          }
+      const existingFiles = fs.readdirSync(uploadsDir);
+      for (const oldFile of existingFiles) {
+        if (oldFile.startsWith(`${cleanSlotId}_`) && oldFile !== fileName) {
+          const oldFilePath = path.join(uploadsDir, oldFile);
+          if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
         }
-      } else {
-        console.warn('[Storage Upload Warning]:', uploadError.message);
       }
-    } catch (storageErr) {
-      console.warn('[Storage Catch Warning]:', storageErr.message);
+    } catch (cleanupErr) {
+      console.warn('[Disk Cleanup Warning]:', cleanupErr.message);
     }
 
-    // Clean up old local file if present
-    if (oldLocalFile && fs.existsSync(oldLocalFile)) {
-      try {
-        fs.unlinkSync(oldLocalFile);
-        console.log(`[Local Cleanup] Deleted previous local image: ${oldLocalFile}`);
-      } catch (unlinkErr) {
-        console.warn('[Local Unlink Warning]:', unlinkErr.message);
-      }
-    }
-
-    // If Supabase storage was not reachable, save locally preserving original extension
-    if (!uploadedToSupabase) {
-      const localFileName = `${cleanSlotId}_${Date.now()}${originalExt}`;
-      const localFilePath = path.join(uploadsDir, localFileName);
-      fs.writeFileSync(localFilePath, req.file.buffer);
-      publicUrl = `/uploads/${localFileName}`;
-    }
-
-    // 2. Update PostgreSQL table
-    const now = new Date();
-    try {
-      const updateQuery = `
-        INSERT INTO portfolio_images (
-          id, title, category, project_slug, dimensions, aspect_ratio, default_src, active_src, is_custom, description, custom_file_name, file_size, storage_path, last_updated
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-        ON CONFLICT (id) DO UPDATE SET
-          active_src = EXCLUDED.active_src,
-          is_custom = EXCLUDED.is_custom,
-          custom_file_name = EXCLUDED.custom_file_name,
-          file_size = EXCLUDED.file_size,
-          storage_path = EXCLUDED.storage_path,
-          last_updated = EXCLUDED.last_updated;
-      `;
-      await pool.query(updateQuery, [
-        slotDef.id,
-        slotDef.title,
-        slotDef.category,
-        slotDef.projectSlug,
-        slotDef.dimensions,
-        slotDef.aspectRatio,
-        slotDef.defaultSrc,
-        publicUrl,
-        true,
-        slotDef.description,
-        req.file.originalname,
-        req.file.size,
-        uploadedToSupabase ? storagePath : null,
-        now
-      ]);
-    } catch (dbErr) {
-      // Supabase JS client fallback for serverless
-      try {
-        await supabaseAdmin.from('portfolio_images').upsert({
-          id: slotDef.id,
-          title: slotDef.title,
-          category: slotDef.category,
-          project_slug: slotDef.projectSlug,
-          dimensions: slotDef.dimensions,
-          aspect_ratio: slotDef.aspectRatio,
-          default_src: slotDef.defaultSrc,
-          active_src: publicUrl,
-          is_custom: true,
-          description: slotDef.description,
-          custom_file_name: req.file.originalname,
-          file_size: req.file.size,
-          storage_path: uploadedToSupabase ? storagePath : null,
-          last_updated: now.toISOString()
-        });
-      } catch (supaErr) {
-        console.warn('[DB Upsert Supabase Fallback Warning]:', supaErr.message);
-      }
-    }
-
-    // Also update local registry cache for offline safety
+    // 4. Update local registry file cache
     const registry = readLocalRegistry();
     registry[slotId] = {
       url: publicUrl,
-      storagePath: uploadedToSupabase ? storagePath : null,
+      storagePath,
       originalName: req.file.originalname,
       size: req.file.size,
-      updatedAt: now.toISOString()
+      updatedAt: new Date().toISOString()
     };
     writeLocalRegistry(registry);
 
-    const updatedSlot = {
-      ...slotDef,
-      activeSrc: publicUrl,
-      isCustom: true,
-      lastUpdated: now.toISOString(),
-      customFileName: req.file.originalname
-    };
+    // 5. Asynchronously try to sync with Supabase Storage and PostgreSQL if accessible
+    (async () => {
+      try {
+        const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+          .from(BUCKET_NAME)
+          .upload(storagePath, req.file.buffer, {
+            contentType: mimeType,
+            upsert: true
+          });
+
+        if (!uploadError) {
+          const { data: urlData } = supabaseAdmin.storage.from(BUCKET_NAME).getPublicUrl(storagePath);
+          const supaUrl = urlData?.publicUrl;
+          if (supaUrl) {
+            await pool.query(
+              `INSERT INTO portfolio_images (id, active_src, is_custom, custom_file_name, file_size, storage_path, last_updated)
+               VALUES ($1, $2, TRUE, $3, $4, $5, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                 active_src = EXCLUDED.active_src,
+                 is_custom = TRUE,
+                 custom_file_name = EXCLUDED.custom_file_name,
+                 file_size = EXCLUDED.file_size,
+                 storage_path = EXCLUDED.storage_path,
+                 last_updated = NOW();`,
+              [slotId, supaUrl, req.file.originalname, req.file.size, storagePath]
+            ).catch(() => {});
+          }
+        }
+      } catch {
+        // Supabase offline/standby
+      }
+    })().catch(() => {});
+
+    console.log(`[Upload Success] Saved image for slot '${slotId}' in SQLite database and disk: ${fileName}`);
 
     res.json({
       success: true,
-      message: `Image for '${slotDef.title}' updated (${originalExt.toUpperCase()})`,
-      storage: uploadedToSupabase ? 'supabase_storage' : 'local_storage',
+      message: `Image for '${slotDef.title}' stored in database and active! (${originalExt.toUpperCase()})`,
+      storage: 'database_and_local',
       fileExtension: originalExt,
       slot: updatedSlot
     });
@@ -517,68 +443,30 @@ app.post('/api/images/reset', async (req, res) => {
       return res.status(400).json({ error: 'slotId is required' });
     }
 
-    const slotDef = defaultImageSlots.find((s) => s.id === slotId);
-    if (!slotDef) {
-      return res.status(404).json({ error: `Image slot with ID '${slotId}' not found` });
+    const resetSlot = resetSlotById(slotId);
+
+    // Delete disk file if it exists
+    if (resetSlot.previousActiveSrc && resetSlot.previousActiveSrc.startsWith('/uploads/')) {
+      const diskPath = path.join(uploadsDir, path.basename(resetSlot.previousActiveSrc));
+      if (fs.existsSync(diskPath)) {
+        try { fs.unlinkSync(diskPath); } catch {}
+      }
     }
 
-    // Check existing record to clean storage
-    try {
-      let oldStoragePath = null;
-      try {
-        const existing = await pool.query('SELECT storage_path FROM portfolio_images WHERE id = $1;', [slotId]);
-        oldStoragePath = existing.rows[0]?.storage_path;
-      } catch {
-        const { data: supaSlot } = await supabaseAdmin.from('portfolio_images').select('storage_path').eq('id', slotId).single();
-        oldStoragePath = supaSlot?.storage_path;
-      }
-
-      if (oldStoragePath && oldStoragePath.startsWith('uploads/')) {
-        await supabaseAdmin.storage.from(BUCKET_NAME).remove([oldStoragePath]);
-      }
-
-      try {
-        await pool.query(
-          `UPDATE portfolio_images SET 
-            active_src = default_src, 
-            is_custom = FALSE, 
-            custom_file_name = NULL, 
-            file_size = NULL, 
-            storage_path = NULL, 
-            last_updated = NOW() 
-          WHERE id = $1;`,
-          [slotId]
-        );
-      } catch (poolErr) {
-        await supabaseAdmin.from('portfolio_images').update({
-          active_src: slotDef.defaultSrc,
-          is_custom: false,
-          custom_file_name: null,
-          file_size: null,
-          storage_path: null,
-          last_updated: new Date().toISOString()
-        }).eq('id', slotId);
-      }
-    } catch (dbErr) {
-      console.warn('[DB Reset Warning]:', dbErr.message);
-    }
-
+    // Clean from registry
     const registry = readLocalRegistry();
     if (registry[slotId]) {
       delete registry[slotId];
       writeLocalRegistry(registry);
     }
 
+    // Asynchronously update remote Supabase if available
+    pool.query('UPDATE portfolio_images SET active_src = default_src, is_custom = FALSE WHERE id = $1;', [slotId]).catch(() => {});
+
     res.json({
       success: true,
-      message: `Slot '${slotDef.title}' reset to default`,
-      slot: {
-        ...slotDef,
-        activeSrc: slotDef.defaultSrc,
-        isCustom: false,
-        lastUpdated: null,
-        customFileName: null
-      }
+      message: `Slot '${resetSlot.title}' reset to default in database`,
+      slot: resetSlot
     });
   } catch (err) {
     console.error('Error resetting slot:', err);
@@ -589,35 +477,33 @@ app.post('/api/images/reset', async (req, res) => {
 // POST /api/images/reset-all - Reset all slots to default
 app.post('/api/images/reset-all', async (req, res) => {
   try {
-    try {
-      const customRows = await pool.query('SELECT storage_path FROM portfolio_images WHERE is_custom = TRUE AND storage_path LIKE \'uploads/%\';');
-      const pathsToDelete = customRows.rows.map((r) => r.storage_path).filter(Boolean);
-      if (pathsToDelete.length > 0) {
-        await supabaseAdmin.storage.from(BUCKET_NAME).remove(pathsToDelete);
-      }
+    const customRows = resetAllSlots();
 
-      await pool.query(
-        `UPDATE portfolio_images SET 
-          active_src = default_src, 
-          is_custom = FALSE, 
-          custom_file_name = NULL, 
-          file_size = NULL, 
-          storage_path = NULL, 
-          last_updated = NOW();`
-      );
-    } catch (dbErr) {
-      console.warn('[DB Reset-All Warning]:', dbErr.message);
+    // Clean custom files from uploads
+    for (const row of customRows) {
+      if (row.active_src && row.active_src.startsWith('/uploads/')) {
+        const diskPath = path.join(uploadsDir, path.basename(row.active_src));
+        if (fs.existsSync(diskPath)) {
+          try { fs.unlinkSync(diskPath); } catch {}
+        }
+      }
     }
 
     writeLocalRegistry({});
-    res.json({ success: true, message: 'All image slots reset to defaults in Supabase Database' });
+
+    pool.query('UPDATE portfolio_images SET active_src = default_src, is_custom = FALSE WHERE is_custom = TRUE;').catch(() => {});
+
+    res.json({
+      success: true,
+      message: 'All image slots reset to defaults in database'
+    });
   } catch (err) {
     console.error('Error resetting all slots:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/contact - Store contact messages in Supabase
+// POST /api/contact - Store contact message in database
 app.post('/api/contact', async (req, res) => {
   try {
     const { name, email, message, projectType, budget } = req.body;
@@ -625,15 +511,18 @@ app.post('/api/contact', async (req, res) => {
       return res.status(400).json({ error: 'Name, email, and message are required' });
     }
 
-    const result = await pool.query(
-      `INSERT INTO contact_messages (name, email, message, project_type, budget) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at;`,
-      [name, email, message, projectType || null, budget || null]
-    );
+    const saved = insertContactMessage({ name, email, message, projectType, budget });
+
+    // Also sync to PostgreSQL if connected
+    pool.query(
+      `INSERT INTO contact_messages (id, name, email, message, project_type, budget) VALUES ($1, $2, $3, $4, $5, $6);`,
+      [saved.id, name, email, message, projectType || null, budget || null]
+    ).catch(() => {});
 
     res.json({
       success: true,
-      message: 'Message received and stored successfully!',
-      id: result.rows[0]?.id
+      message: 'Message received and stored in database successfully!',
+      id: saved.id
     });
   } catch (err) {
     console.error('Error saving contact message:', err);
@@ -641,13 +530,13 @@ app.post('/api/contact', async (req, res) => {
   }
 });
 
+// Start server
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`[Portfolio Backend] Server running on http://localhost:${PORT}`);
-    console.log(`[Portfolio Backend] Supabase PostgreSQL connected at db.hhajohhnsqzpnwsmasoa.supabase.co`);
-    console.log(`[Portfolio Backend] Supabase Storage bucket: ${BUCKET_NAME}`);
+    console.log(`[Portfolio Backend] SQLite Database active at ${dataDir}`);
+    console.log(`[Portfolio Backend] Ready to serve uploads & database slots`);
   });
 }
 
 export default app;
-
