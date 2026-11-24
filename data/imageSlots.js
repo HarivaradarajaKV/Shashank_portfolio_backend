@@ -552,6 +552,54 @@ export const defaultImageSlots = [
     "description": "3D metallic gear asset rotating in the hero section"
   },
   {
+    "id": "home-card-nopd",
+    "title": "Home — Selected Work Card: NOPD Recruitment Platform",
+    "category": "Home & Profile",
+    "projectSlug": "nopd-recruitment-platform",
+    "dimensions": "1440 × 720",
+    "aspectRatio": "2/1",
+    "defaultSrc": "/images/projects/nopd/NOPD_Header_img.png",
+    "activeSrc": "/images/projects/nopd/NOPD_Header_img.png",
+    "isCustom": false,
+    "description": "Featured card background image for NOPD Recruitment Platform on the Home screen"
+  },
+  {
+    "id": "home-card-data-udipi",
+    "title": "Home — Selected Work Card: Data Udipi — Voice AI",
+    "category": "Home & Profile",
+    "projectSlug": "data-udipi-voice-ai",
+    "dimensions": "1440 × 720",
+    "aspectRatio": "2/1",
+    "defaultSrc": "/images/projects/data-udipi/Group 3351_data_udipi.webp",
+    "activeSrc": "/images/projects/data-udipi/Group 3351_data_udipi.webp",
+    "isCustom": false,
+    "description": "Featured card background image for Data Udipi — Voice AI on the Home screen"
+  },
+  {
+    "id": "home-card-saranga",
+    "title": "Home — Selected Work Card: Saranga Ayurveda",
+    "category": "Home & Profile",
+    "projectSlug": "saranga-ayurveda",
+    "dimensions": "1440 × 720",
+    "aspectRatio": "2/1",
+    "defaultSrc": "/images/projects/saranga-hero-mockup.png",
+    "activeSrc": "/images/projects/saranga-hero-mockup.png",
+    "isCustom": false,
+    "description": "Featured card background image for Saranga Ayurveda on the Home screen"
+  },
+  {
+    "id": "bento-ux-preview",
+    "title": "Home — Bento UX Design Preview Card",
+    "category": "Home & Profile",
+    "projectSlug": "",
+    "dimensions": "800 × 600",
+    "aspectRatio": "4/3",
+    "defaultSrc": "/images/projects/curiospry-cover.svg",
+    "activeSrc": "/images/projects/curiospry-cover.svg",
+    "isCustom": false,
+    "description": "Hover mockup graphic displayed inside the Bento UX Design metric card on the Home page"
+  },
+  {
     "id": "finny-hero-mockup",
     "title": "Finny — Header Showcase Image",
     "category": "Finny Case Study",

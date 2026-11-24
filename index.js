@@ -18,22 +18,29 @@ import {
   resetSlotById,
   resetAllSlots,
   authenticateAdminUser,
-  insertContactMessage
+  insertContactMessage,
+  getAllContactMessages,
+  deleteContactMessage
 } from './db.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables from server/.env then root .env
+try {
+  dotenv.config({ path: path.join(__dirname, '.env') });
+} catch {}
 dotenv.config();
 
 const { Pool } = pg;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Supabase credentials
+// Supabase credentials - ensure service role key is always used so storage RLS policies never block uploads
 const DEFAULT_SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoYWpvaGhuc3F6cG53c21hc29hIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTExNzQxNywiZXhwIjoyMTA0NjkzNDE3fQ.cbtxhuzYc9f5yYXNYsGNniTToGHer1QH1Wk8tNoGJvg';
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://hhajohhnsqzpnwsmasoa.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://hhajohhnsqzpnwsmasoa.supabase.co';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SERVICE_ROLE_KEY;
 const BUCKET_NAME = process.env.SUPABASE_BUCKET || process.env.VITE_SUPABASE_BUCKET || 'portfolio-images';
 
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -44,40 +51,45 @@ export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KE
 export async function uploadToSupabaseStorage(storagePath, buffer, mimeType) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
 
-  const bucketCandidates = Array.from(new Set([
-    process.env.SUPABASE_BUCKET,
-    process.env.VITE_SUPABASE_BUCKET,
-    BUCKET_NAME,
-    'portfolio-images',
-    'portfolio_images',
-    'portfolio',
-    'images',
-    'uploads'
-  ].filter(Boolean)));
+  const uploadTask = (async () => {
+    const bucketCandidates = Array.from(new Set([
+      'portfolio-images',
+      process.env.SUPABASE_BUCKET,
+      process.env.VITE_SUPABASE_BUCKET,
+      BUCKET_NAME,
+      'portfolio_images',
+      'portfolio',
+      'images',
+      'uploads'
+    ].filter(Boolean)));
 
-  for (const bucket of bucketCandidates) {
-    try {
-      const { data, error } = await supabaseAdmin.storage
-        .from(bucket)
-        .upload(storagePath, buffer, {
-          contentType: mimeType,
-          upsert: true
-        });
+    for (const bucket of bucketCandidates) {
+      try {
+        const { data, error } = await supabaseAdmin.storage
+          .from(bucket)
+          .upload(storagePath, buffer, {
+            contentType: mimeType,
+            upsert: true
+          });
 
-      if (!error && data) {
-        const { data: urlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
-        if (urlData?.publicUrl) {
-          console.log(`[Supabase Storage Success] Uploaded to bucket '${bucket}': ${urlData.publicUrl}`);
-          return { bucket, publicUrl: urlData.publicUrl };
+        if (!error && data) {
+          const { data: urlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(storagePath);
+          if (urlData?.publicUrl) {
+            console.log(`[Supabase Storage Success] Uploaded to bucket '${bucket}': ${urlData.publicUrl}`);
+            return { bucket, publicUrl: urlData.publicUrl };
+          }
+        } else if (error) {
+          console.warn(`[Supabase Storage attempt '${bucket}']:`, error.message);
         }
-      } else if (error) {
-        console.warn(`[Supabase Storage attempt '${bucket}']:`, error.message);
+      } catch (err) {
+        console.warn(`[Supabase Storage exception '${bucket}']:`, err.message);
       }
-    } catch (err) {
-      console.warn(`[Supabase Storage exception '${bucket}']:`, err.message);
     }
-  }
-  return null;
+    return null;
+  })();
+
+  const timeoutTask = new Promise((resolve) => setTimeout(() => resolve(null), 25000));
+  return Promise.race([uploadTask, timeoutTask]);
 }
 
 // Helper to determine exact original extension without altering format
@@ -450,7 +462,7 @@ app.post('/api/images/upload', (req, res) => {
     const fileName = `${cleanSlotId}_${Date.now()}${originalExt}`;
     const storagePath = `uploads/${fileName}`;
 
-    // 1. Save file to local uploads directory
+    // 1. Save file to local uploads directory immediately
     const localFilePath = path.join(uploadsDir, fileName);
     try {
       fs.writeFileSync(localFilePath, req.file.buffer);
@@ -463,54 +475,8 @@ app.post('/api/images/upload', (req, res) => {
     const mimeType = req.file.mimetype || 'image/png';
     const base64Data = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
 
-    // 3. AWAIT upload to Supabase Storage Bucket (essential for Vercel serverless so function does not freeze)
-    let uploadedToSupabase = false;
-    try {
-      const supaResult = await uploadToSupabaseStorage(storagePath, req.file.buffer, mimeType);
-      if (supaResult?.publicUrl) {
-        publicUrl = supaResult.publicUrl;
-        uploadedToSupabase = true;
-
-        // Upsert into Supabase database table via HTTPS REST client
-        await supabaseAdmin.from('portfolio_images').upsert({
-          id: slotDef.id,
-          title: slotDef.title,
-          category: slotDef.category,
-          project_slug: slotDef.projectSlug,
-          dimensions: slotDef.dimensions,
-          aspect_ratio: slotDef.aspectRatio,
-          default_src: slotDef.defaultSrc,
-          active_src: publicUrl,
-          is_custom: true,
-          description: slotDef.description,
-          custom_file_name: req.file.originalname,
-          file_size: req.file.size,
-          storage_path: storagePath,
-          last_updated: new Date().toISOString()
-        }, { onConflict: 'id' }).catch((dbErr) => {
-          console.warn('[Supabase DB Upsert Note]:', dbErr.message);
-        });
-
-        // Also update via PostgreSQL pool if available
-        pool.query(
-          `INSERT INTO portfolio_images (id, active_src, is_custom, custom_file_name, file_size, storage_path, last_updated)
-           VALUES ($1, $2, TRUE, $3, $4, $5, NOW())
-           ON CONFLICT (id) DO UPDATE SET
-             active_src = EXCLUDED.active_src,
-             is_custom = TRUE,
-             custom_file_name = EXCLUDED.custom_file_name,
-             file_size = EXCLUDED.file_size,
-             storage_path = EXCLUDED.storage_path,
-             last_updated = NOW();`,
-          [slotId, publicUrl, req.file.originalname, req.file.size, storagePath]
-        ).catch(() => {});
-      }
-    } catch (supaErr) {
-      console.warn('[Supabase Storage Sync Warning]:', supaErr.message);
-    }
-
-    // 4. Store in SQLite Database (instant local persistence)
-    const updatedSlot = saveSlotUpload({
+    // 3. Store in SQLite Database IMMEDIATELY (guarantees local persistence in 2ms)
+    let updatedSlot = saveSlotUpload({
       slotId,
       publicUrl,
       originalName: req.file.originalname,
@@ -520,20 +486,7 @@ app.post('/api/images/upload', (req, res) => {
       mimeType
     });
 
-    // Clean up any old files from disk for this slot
-    try {
-      const existingFiles = fs.readdirSync(uploadsDir);
-      for (const oldFile of existingFiles) {
-        if (oldFile.startsWith(`${cleanSlotId}_`) && oldFile !== fileName) {
-          const oldFilePath = path.join(uploadsDir, oldFile);
-          if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
-        }
-      }
-    } catch (cleanupErr) {
-      console.warn('[Disk Cleanup Warning]:', cleanupErr.message);
-    }
-
-    // 5. Update local registry file cache
+    // 4. Update local registry file cache immediately
     const registry = readLocalRegistry();
     registry[slotId] = {
       url: publicUrl,
@@ -543,6 +496,63 @@ app.post('/api/images/upload', (req, res) => {
       updatedAt: new Date().toISOString()
     };
     writeLocalRegistry(registry);
+
+    // 5. Clean up old files from disk for this slot
+    try {
+      const existingFiles = fs.readdirSync(uploadsDir);
+      for (const oldFile of existingFiles) {
+        if (oldFile.startsWith(`${cleanSlotId}_`) && oldFile !== fileName) {
+          const oldFilePath = path.join(uploadsDir, oldFile);
+          if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
+        }
+      }
+    } catch (cleanupErr) {}
+
+    // 6. Supabase storage upload & database upsert
+    let uploadedToSupabase = false;
+    try {
+      const supaResult = await uploadToSupabaseStorage(storagePath, req.file.buffer, mimeType);
+      if (supaResult?.publicUrl) {
+        publicUrl = supaResult.publicUrl;
+        uploadedToSupabase = true;
+
+        // Update with publicUrl in SQLite
+        updatedSlot = saveSlotUpload({
+          slotId,
+          publicUrl,
+          originalName: req.file.originalname,
+          size: req.file.size,
+          storagePath,
+          base64Data,
+          mimeType
+        });
+
+        // Upsert into Supabase database table
+        try {
+          await supabaseAdmin.from('portfolio_images').upsert({
+            id: slotDef.id,
+            title: slotDef.title,
+            category: slotDef.category,
+            project_slug: slotDef.projectSlug,
+            dimensions: slotDef.dimensions,
+            aspect_ratio: slotDef.aspectRatio,
+            default_src: slotDef.defaultSrc,
+            active_src: publicUrl,
+            is_custom: true,
+            description: slotDef.description,
+            custom_file_name: req.file.originalname,
+            file_size: req.file.size,
+            storage_path: storagePath,
+            last_updated: new Date().toISOString()
+          }, { onConflict: 'id' });
+          console.log(`[Supabase DB Success] Stored '${slotDef.id}' in Supabase database!`);
+        } catch (dbErr) {
+          console.warn('[Supabase DB Error]:', dbErr.message);
+        }
+      }
+    } catch (supaErr) {
+      console.warn('[Supabase Storage Sync Warning]:', supaErr.message);
+    }
 
     console.log(`[Upload Success] Saved image for slot '${slotId}' (Supabase: ${uploadedToSupabase}, URL: ${publicUrl.substring(0, 50)}...)`);
 
@@ -640,7 +650,7 @@ app.post('/api/images/reset-all', async (req, res) => {
   }
 });
 
-// POST /api/contact - Store contact message in database
+// POST /api/contact - Store contact message in Supabase and SQLite
 app.post('/api/contact', async (req, res) => {
   try {
     const { name, email, message, projectType, budget } = req.body;
@@ -650,7 +660,23 @@ app.post('/api/contact', async (req, res) => {
 
     const saved = insertContactMessage({ name, email, message, projectType, budget });
 
-    // Also sync to PostgreSQL if connected
+    // Store in Supabase table
+    try {
+      await supabaseAdmin.from('contact_messages').insert({
+        id: saved.id,
+        name,
+        email,
+        message,
+        project_type: projectType || null,
+        budget: budget || null,
+        created_at: new Date().toISOString()
+      });
+      console.log(`[Supabase Contact Success] Stored inquiry from ${name} (${email})`);
+    } catch (supaErr) {
+      console.warn('[Supabase Contact Warning]:', supaErr.message);
+    }
+
+    // Also sync to PostgreSQL pool if connected
     pool.query(
       `INSERT INTO contact_messages (id, name, email, message, project_type, budget) VALUES ($1, $2, $3, $4, $5, $6);`,
       [saved.id, name, email, message, projectType || null, budget || null]
@@ -664,6 +690,83 @@ app.post('/api/contact', async (req, res) => {
   } catch (err) {
     console.error('Error saving contact message:', err);
     res.status(500).json({ error: err.message || 'Failed to save contact message' });
+  }
+});
+
+// GET /api/contact - Retrieve all contact messages for admin view
+app.get('/api/contact', async (req, res) => {
+  try {
+    let messages = [];
+
+    // 1. Fetch from Supabase
+    try {
+      const { data: supaMessages, error } = await supabaseAdmin
+        .from('contact_messages')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && supaMessages && supaMessages.length > 0) {
+        messages = supaMessages.map((m) => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          message: m.message,
+          projectType: m.project_type || m.projectType,
+          budget: m.budget,
+          createdAt: m.created_at || m.createdAt
+        }));
+      }
+    } catch (supaErr) {
+      console.warn('[Supabase Contact Fetch Notice]:', supaErr.message);
+    }
+
+    // 2. Merge with local SQLite messages if any are not in Supabase
+    try {
+      const localMessages = getAllContactMessages();
+      const existingIds = new Set(messages.map((m) => m.id));
+      for (const loc of localMessages) {
+        if (!existingIds.has(loc.id)) {
+          messages.push({
+            id: loc.id,
+            name: loc.name,
+            email: loc.email,
+            message: loc.message,
+            projectType: loc.project_type,
+            budget: loc.budget,
+            createdAt: loc.created_at
+          });
+        }
+      }
+    } catch (_locErr) {}
+
+    // Sort descending by date
+    messages.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    res.json({
+      success: true,
+      count: messages.length,
+      messages
+    });
+  } catch (err) {
+    console.error('Error retrieving contact messages:', err);
+    res.status(500).json({ error: err.message || 'Failed to retrieve messages' });
+  }
+});
+
+// DELETE /api/contact/:id - Delete a contact message
+app.delete('/api/contact/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'Message ID is required' });
+
+    deleteContactMessage(id);
+    try {
+      await supabaseAdmin.from('contact_messages').delete().eq('id', id);
+    } catch {}
+
+    res.json({ success: true, message: 'Message deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete message' });
   }
 });
 

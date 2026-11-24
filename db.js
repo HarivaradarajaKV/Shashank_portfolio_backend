@@ -412,3 +412,13 @@ export function insertContactMessage({ name, email, message, projectType, budget
   return { id, name, email, message, createdAt: now };
 }
 
+export function getAllContactMessages() {
+  const db = getDb();
+  return db.prepare('SELECT * FROM contact_messages ORDER BY created_at DESC;').all();
+}
+
+export function deleteContactMessage(id) {
+  const db = getDb();
+  return db.prepare('DELETE FROM contact_messages WHERE id = ?;').run(id);
+}
+
