@@ -60,30 +60,6 @@ export const defaultImageSlots = [
     "description": "Primary customer portrait above the Arjun Kumar card (User Persona 01)"
   },
   {
-    "id": "data-udipi-empathy-avatar",
-    "title": "Data Udipi — Empathy Map Center Avatar",
-    "category": "Data Udipi Case Study",
-    "projectSlug": "data-udipi",
-    "dimensions": "161 × 151",
-    "aspectRatio": "161/151",
-    "defaultSrc": "/images/projects/data-udipi/image 186_data_udipi.webp",
-    "activeSrc": "/images/projects/data-udipi/image 186_data_udipi.webp",
-    "isCustom": false,
-    "description": "Center avatar at the intersection of the Customer Empathy Map"
-  },
-  {
-    "id": "data-udipi-hand-phone-showcase",
-    "title": "Data Udipi — Mobile Screen Showcase in Hand",
-    "category": "Data Udipi Case Study",
-    "projectSlug": "data-udipi",
-    "dimensions": "1073 × 996",
-    "aspectRatio": "1073/996",
-    "defaultSrc": "/images/projects/data-udipi/Group 3349_data_udipi.webp",
-    "activeSrc": "/images/projects/data-udipi/Group 3349_data_udipi.webp",
-    "isCustom": false,
-    "description": "Hand holding iPhone showcase below the journey timeline"
-  },
-  {
     "id": "data-udipi-wireframe-grid",
     "title": "Data Udipi — Low-Fidelity Wireframes Grid",
     "category": "Data Udipi Case Study",
@@ -106,30 +82,6 @@ export const defaultImageSlots = [
     "activeSrc": "/images/projects/data-udipi/Frame 1171275116_data_udipi.webp",
     "isCustom": false,
     "description": "Isometric high-fidelity UI design showcase grid"
-  },
-  {
-    "id": "data-udipi-cinematic-spread",
-    "title": "Data Udipi — Cinematic Screen Spread",
-    "category": "Data Udipi Case Study",
-    "projectSlug": "data-udipi",
-    "dimensions": "1440 × 1040",
-    "aspectRatio": "1440/1040",
-    "defaultSrc": "/images/projects/data-udipi/section-15-cinematic-spread_data_udipi.webp",
-    "activeSrc": "/images/projects/data-udipi/section-15-cinematic-spread_data_udipi.webp",
-    "isCustom": false,
-    "description": "Wide cinematic device spread banner"
-  },
-  {
-    "id": "data-udipi-pedestal-mockup",
-    "title": "Data Udipi — MacBook Pro on Stone Pedestal",
-    "category": "Data Udipi Case Study",
-    "projectSlug": "data-udipi",
-    "dimensions": "1440 × 1080",
-    "aspectRatio": "1440/1080",
-    "defaultSrc": "/images/projects/data-udipi/Free MacBook Pro mockup on stone pedestal (Mockuuups Studio)_data_udipi.webp",
-    "activeSrc": "/images/projects/data-udipi/Free MacBook Pro mockup on stone pedestal (Mockuuups Studio)_data_udipi.webp",
-    "isCustom": false,
-    "description": "MacBook Pro on stone pedestal mockup before the Thank You section"
   },
   {
     "id": "nopd-hero-mockup",
