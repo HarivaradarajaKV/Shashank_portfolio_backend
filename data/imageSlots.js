@@ -505,39 +505,39 @@ export const defaultImageSlots = [
   },
   {
     "id": "home-card-nopd",
-    "title": "Home — Selected Work Card: NOPD Recruitment Platform",
-    "category": "Home & Profile",
+    "title": "Home & Works Stack — NOPD Recruitment Platform",
+    "category": "Home & Works Stack",
     "projectSlug": "nopd-recruitment-platform",
     "dimensions": "1440 × 720",
     "aspectRatio": "2/1",
     "defaultSrc": "/images/projects/nopd/NOPD_Header_img.png",
     "activeSrc": "/images/projects/nopd/NOPD_Header_img.png",
     "isCustom": false,
-    "description": "Featured card background image for NOPD Recruitment Platform on the Home screen"
+    "description": "Card preview image displayed in the stacked cards section on both Home and Works screens for NOPD Recruitment Platform"
   },
   {
     "id": "home-card-data-udipi",
-    "title": "Home — Selected Work Card: Data Udipi — Voice AI",
-    "category": "Home & Profile",
+    "title": "Home & Works Stack — Data Udipi: Voice AI",
+    "category": "Home & Works Stack",
     "projectSlug": "data-udipi-voice-ai",
     "dimensions": "1440 × 720",
     "aspectRatio": "2/1",
-    "defaultSrc": "/images/projects/data-udipi/Group 3351_data_udipi.webp",
-    "activeSrc": "/images/projects/data-udipi/Group 3351_data_udipi.webp",
+    "defaultSrc": "/images/projects/data-udipi/home-card-data-udipi.png",
+    "activeSrc": "/images/projects/data-udipi/home-card-data-udipi.png",
     "isCustom": false,
-    "description": "Featured card background image for Data Udipi — Voice AI on the Home screen"
+    "description": "Card preview image displayed in the stacked cards section on both Home and Works screens for Data Udipi — Voice AI"
   },
   {
     "id": "home-card-saranga",
-    "title": "Home — Selected Work Card: Saranga Ayurveda",
-    "category": "Home & Profile",
+    "title": "Home & Works Stack — Saranga Ayurveda",
+    "category": "Home & Works Stack",
     "projectSlug": "saranga-ayurveda",
     "dimensions": "1440 × 720",
     "aspectRatio": "2/1",
     "defaultSrc": "/images/projects/saranga-hero-mockup.png",
     "activeSrc": "/images/projects/saranga-hero-mockup.png",
     "isCustom": false,
-    "description": "Featured card background image for Saranga Ayurveda on the Home screen"
+    "description": "Card preview image displayed in the stacked cards section on both Home and Works screens for Saranga Ayurveda"
   },
   {
     "id": "bento-ux-preview",
