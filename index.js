@@ -466,6 +466,9 @@ app.post('/api/images/upload', (req, res) => {
     const localFilePath = path.join(uploadsDir, fileName);
     try {
       fs.writeFileSync(localFilePath, req.file.buffer);
+      const publicUploadsDir = path.join(process.cwd(), 'public', 'uploads');
+      if (!fs.existsSync(publicUploadsDir)) fs.mkdirSync(publicUploadsDir, { recursive: true });
+      fs.writeFileSync(path.join(publicUploadsDir, fileName), req.file.buffer);
     } catch (fsErr) {
       console.warn('[Local Disk Write Notice]:', fsErr.message);
     }
@@ -549,6 +552,26 @@ app.post('/api/images/upload', (req, res) => {
         } catch (dbErr) {
           console.warn('[Supabase DB Error]:', dbErr.message);
         }
+
+        // Clean up older image(s) for this slot from Supabase Storage bucket
+        try {
+          const { data: bucketFiles } = await supabaseAdmin.storage
+            .from(BUCKET_NAME)
+            .list('uploads', { search: cleanSlotId });
+
+          if (bucketFiles && bucketFiles.length > 0) {
+            const oldBucketPaths = bucketFiles
+              .filter((f) => f.name.startsWith(`${cleanSlotId}_`) && f.name !== fileName)
+              .map((f) => `uploads/${f.name}`);
+
+            if (oldBucketPaths.length > 0) {
+              await supabaseAdmin.storage.from(BUCKET_NAME).remove(oldBucketPaths);
+              console.log(`[Supabase Storage Cleanup] Removed ${oldBucketPaths.length} older bucket asset(s) for slot '${slotId}':`, oldBucketPaths);
+            }
+          }
+        } catch (bucketCleanErr) {
+          console.warn('[Supabase Storage Cleanup Notice]:', bucketCleanErr.message);
+        }
       }
     } catch (supaErr) {
       console.warn('[Supabase Storage Sync Warning]:', supaErr.message);
@@ -593,6 +616,27 @@ app.post('/api/images/reset', async (req, res) => {
     if (registry[slotId]) {
       delete registry[slotId];
       writeLocalRegistry(registry);
+    }
+
+    // Clean custom image from Supabase Storage bucket
+    try {
+      const cleanSlotId = slotId.replace(/[^a-zA-Z0-9-_]/g, '_');
+      const { data: strayFiles } = await supabaseAdmin.storage
+        .from(BUCKET_NAME)
+        .list('uploads', { search: cleanSlotId });
+
+      if (strayFiles && strayFiles.length > 0) {
+        const toDelete = strayFiles
+          .filter((f) => f.name.startsWith(`${cleanSlotId}_`))
+          .map((f) => `uploads/${f.name}`);
+
+        if (toDelete.length > 0) {
+          await supabaseAdmin.storage.from(BUCKET_NAME).remove(toDelete);
+          console.log(`[Supabase Storage Reset] Removed ${toDelete.length} file(s) from bucket for slot '${slotId}'`);
+        }
+      }
+    } catch (resetCleanErr) {
+      console.warn('[Supabase Storage Reset Warning]:', resetCleanErr.message);
     }
 
     // Asynchronously update remote Supabase if available
