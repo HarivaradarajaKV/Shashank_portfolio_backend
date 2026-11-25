@@ -523,8 +523,8 @@ export const defaultImageSlots = [
     "dimensions": "1440 × 720",
     "aspectRatio": "2/1",
     "defaultSrc": "/images/projects/data-udipi/home-card-data-udipi.png",
-    "activeSrc": "/images/projects/data-udipi/home-card-data-udipi.png",
-    "isCustom": false,
+    "activeSrc": "https://hhajohhnsqzpnwsmasoa.supabase.co/storage/v1/object/public/portfolio-images/uploads/home-card-data-udipi_1795628922591.webp",
+    "isCustom": true,
     "description": "Card preview image displayed in the stacked cards section on both Home and Works screens for Data Udipi — Voice AI"
   },
   {
