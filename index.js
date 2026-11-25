@@ -437,6 +437,61 @@ app.get('/api/images', async (req, res) => {
   }
 });
 
+// POST /api/images/sync - Synchronize an already-uploaded Supabase image with SQLite and Supabase DB
+app.post('/api/images/sync', async (req, res) => {
+  try {
+    const { slotId, activeSrc, storagePath, customFileName, fileSize } = req.body;
+    if (!slotId || !activeSrc) {
+      return res.status(400).json({ error: 'slotId and activeSrc are required' });
+    }
+
+    const slotDef = defaultImageSlots.find((s) => s.id === slotId);
+    const now = new Date().toISOString();
+
+    // 1. Update SQLite immediately
+    const updated = saveSlotUpload({
+      slotId,
+      publicUrl: activeSrc,
+      originalName: customFileName || 'custom-image',
+      size: fileSize || 0,
+      storagePath: storagePath || '',
+      base64Data: '',
+      mimeType: 'image/png'
+    });
+
+    // 2. Also ensure Supabase database table has it recorded
+    try {
+      await supabaseAdmin.from('portfolio_images').upsert({
+        id: slotId,
+        title: slotDef?.title || slotId,
+        category: slotDef?.category || 'General',
+        project_slug: slotDef?.projectSlug || '',
+        dimensions: slotDef?.dimensions || '',
+        aspect_ratio: slotDef?.aspectRatio || '',
+        default_src: slotDef?.defaultSrc || activeSrc,
+        active_src: activeSrc,
+        is_custom: true,
+        description: slotDef?.description || '',
+        custom_file_name: customFileName || null,
+        file_size: fileSize || null,
+        storage_path: storagePath || null,
+        last_updated: now
+      }, { onConflict: 'id' });
+    } catch (supaErr) {
+      console.warn('[Supabase Sync Warning]:', supaErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Image for '${slotDef?.title || slotId}' synchronized successfully!`,
+      slot: updated
+    });
+  } catch (err) {
+    console.error('[Sync Error]:', err);
+    res.status(500).json({ error: err.message || 'Internal server error during sync' });
+  }
+});
+
 // POST /api/images/upload - Upload file, save in database and storage
 app.post('/api/images/upload', (req, res) => {
   upload.single('image')(req, res, async (multerErr) => {
