@@ -162,8 +162,8 @@ export const defaultImageSlots = [
     "projectSlug": "nopd",
     "dimensions": "600 × 500",
     "aspectRatio": "6/5",
-    "defaultSrc": "",
-    "activeSrc": "",
+    "defaultSrc": "/images/projects/nopd/nopd-problem-visual.jpg",
+    "activeSrc": "/images/projects/nopd/nopd-problem-visual.jpg",
     "isCustom": false,
     "description": "Visual illustration or mockup for Problem Statement in Section 07"
   },
@@ -174,8 +174,8 @@ export const defaultImageSlots = [
     "projectSlug": "nopd",
     "dimensions": "600 × 500",
     "aspectRatio": "6/5",
-    "defaultSrc": "",
-    "activeSrc": "",
+    "defaultSrc": "/images/projects/nopd/nopd-solution-visual.jpg",
+    "activeSrc": "/images/projects/nopd/nopd-solution-visual.jpg",
     "isCustom": false,
     "description": "Visual illustration or mockup for Solution Space in Section 07"
   },
@@ -598,6 +598,30 @@ export const defaultImageSlots = [
     "activeSrc": "/images/projects/curiospry-cover.svg",
     "isCustom": false,
     "description": "Hover mockup graphic displayed inside the Bento UX Design metric card on the Home page"
+  },
+  {
+    "id": "bento-testimonial-avatar",
+    "title": "Home — Bento Testimonial Avatar",
+    "category": "Home & Profile",
+    "projectSlug": "",
+    "dimensions": "400 × 400",
+    "aspectRatio": "1/1",
+    "defaultSrc": "/images/avatar/vasu-dev.jpg",
+    "activeSrc": "/images/avatar/vasu-dev.jpg",
+    "isCustom": false,
+    "description": "Avatar photo of Vasu, G Dev for the testimonial card in Bento grid on Home page"
+  },
+  {
+    "id": "about-profile-photo",
+    "title": "About — Profile Portrait Photo",
+    "category": "About",
+    "projectSlug": "about",
+    "dimensions": "681 × 1024",
+    "aspectRatio": "681/1024",
+    "defaultSrc": "/images/avatar/hari-portrait.png",
+    "activeSrc": "/images/avatar/hari-portrait.png",
+    "isCustom": false,
+    "description": "Large profile portrait photo displayed on the About page next to the design principles"
   },
   {
     "id": "finny-hero-mockup",
