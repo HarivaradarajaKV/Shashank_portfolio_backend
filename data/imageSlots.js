@@ -1056,18 +1056,6 @@ export const defaultImageSlots = [
     "description": "Hero showcase mockup at the top of Saranga Ayurveda case study & Works card"
   },
   {
-    "id": "saranga-design-process",
-    "title": "Saranga Ayurveda — Section 03: Design Process Banner",
-    "category": "Saranga Ayurveda Case Study",
-    "projectSlug": "saranga-ayurveda",
-    "dimensions": "1440 × 666",
-    "aspectRatio": "1440/666",
-    "defaultSrc": "",
-    "activeSrc": "",
-    "isCustom": false,
-    "description": "Design Process and Methodology diagram in Section 03"
-  },
-  {
     "id": "saranga-problem-image",
     "title": "Saranga Ayurveda — Section 05: Problem Visual",
     "category": "Saranga Ayurveda Case Study",
@@ -1150,18 +1138,6 @@ export const defaultImageSlots = [
     "activeSrc": "/images/projects/saranga-wireframes-spread.png",
     "isCustom": false,
     "description": "Section 10 Low-fidelity wireframes banner"
-  },
-  {
-    "id": "saranga-final-ui-grid",
-    "title": "Saranga Ayurveda — Section 11: High-Fidelity Final UI Designs",
-    "category": "Saranga Ayurveda Case Study",
-    "projectSlug": "saranga-ayurveda",
-    "dimensions": "1438 × 2301",
-    "aspectRatio": "1438/2301",
-    "defaultSrc": "",
-    "activeSrc": "",
-    "isCustom": false,
-    "description": "Section 11 High-fidelity final UI screen spread"
   },
   {
     "id": "saranga-screen-1",
@@ -1402,42 +1378,6 @@ export const defaultImageSlots = [
     "activeSrc": "/images/projects/saranga-collateral-eyecream.png",
     "isCustom": false,
     "description": "Herbal Under Eye Cream card in Brand Collateral section"
-  },
-  {
-    "id": "saranga-hand-phone-showcase",
-    "title": "Saranga Ayurveda — Section 13: Handheld Showcase",
-    "category": "Saranga Ayurveda Case Study",
-    "projectSlug": "saranga-ayurveda",
-    "dimensions": "1440 × 720",
-    "aspectRatio": "2/1",
-    "defaultSrc": "",
-    "activeSrc": "",
-    "isCustom": false,
-    "description": "Section 13 Hand-held device showcase banner"
-  },
-  {
-    "id": "saranga-cinematic-spread",
-    "title": "Saranga Ayurveda — Section 13: Cinematic Spread",
-    "category": "Saranga Ayurveda Case Study",
-    "projectSlug": "saranga-ayurveda",
-    "dimensions": "1440 × 800",
-    "aspectRatio": "16/9",
-    "defaultSrc": "",
-    "activeSrc": "",
-    "isCustom": false,
-    "description": "Section 13 Cinematic device mockup spread"
-  },
-  {
-    "id": "saranga-pedestal-mockup",
-    "title": "Saranga Ayurveda — Section 13: Pedestal Showcase",
-    "category": "Saranga Ayurveda Case Study",
-    "projectSlug": "saranga-ayurveda",
-    "dimensions": "1440 × 800",
-    "aspectRatio": "16/9",
-    "defaultSrc": "",
-    "activeSrc": "",
-    "isCustom": false,
-    "description": "Section 13 Pedestal device presentation banner"
   },
   {
     "id": "data-udipi-how-might-we",
