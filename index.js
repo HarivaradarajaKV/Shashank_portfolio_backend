@@ -382,15 +382,16 @@ app.get('/api/images', async (req, res) => {
     try {
       const { data: supaRows } = await supabaseAdmin
         .from('portfolio_images')
-        .select('*')
-        .eq('is_custom', true);
+        .select('*');
       if (supaRows && supaRows.length > 0) {
         const supaMap = new Map(supaRows.map((r) => [r.id, r]));
         slots.forEach((s) => {
           if (supaMap.has(s.id)) {
             const row = supaMap.get(s.id);
-            s.activeSrc = row.active_src || s.activeSrc;
-            s.isCustom = true;
+            if (row.active_src) {
+              s.activeSrc = row.active_src;
+            }
+            s.isCustom = Boolean(row.is_custom);
             s.customFileName = row.custom_file_name || s.customFileName;
             s.fileSize = row.file_size || s.fileSize;
             s.storagePath = row.storage_path || s.storagePath;
@@ -405,7 +406,7 @@ app.get('/api/images', async (req, res) => {
     // 2. Also try remote PostgreSQL pool if available
     try {
       const pgResult = await Promise.race([
-        pool.query('SELECT id, active_src, is_custom FROM portfolio_images WHERE is_custom = TRUE;'),
+        pool.query('SELECT id, active_src, is_custom FROM portfolio_images WHERE active_src IS NOT NULL AND active_src != \'\';'),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1200))
       ]);
       if (pgResult?.rows && pgResult.rows.length > 0) {
@@ -413,7 +414,9 @@ app.get('/api/images', async (req, res) => {
         slots.forEach((s) => {
           if (pgMap.has(s.id)) {
             const pgRow = pgMap.get(s.id);
-            s.activeSrc = pgRow.active_src || s.activeSrc;
+            if (pgRow.active_src) {
+              s.activeSrc = pgRow.active_src;
+            }
             s.isCustom = Boolean(pgRow.is_custom);
           }
         });
